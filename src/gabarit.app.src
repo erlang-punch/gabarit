@@ -1,0 +1,14 @@
+{application, gabarit,
+ [{description, "A template engine and templates manager"},
+  {vsn, "0.1.0"},
+  {registered, [gabarit, gabarit_sup]},
+  {mod, {gabarit_app, []}},
+  {applications,
+   [kernel,
+    stdlib
+   ]},
+  {env,[]},
+  {modules, []},
+  {licenses, ["MIT"]},
+  {links, ["https://github.com/erlang-punch/gabarit"]}
+ ]}.
