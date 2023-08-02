@@ -1,26 +1,47 @@
 %%%===================================================================
-%%% @doc
+%%% @doc private interface module.
 %%% @end
 %%%===================================================================
 -module(gabarit_compiler).
 -compile(export_all).
 -export([path/0, tree/0, tree/1]).
 -define(DEFAULT_PATH, "priv/templates").
+-define(DEFAULT_PREFIX_FILE, "gabarit@").
+-define(DEFAULT_PREFIX_STRING, "gabarit$").
 -define(DEFAULT_MERL_TEMPLATE, "priv/gabarit/gabarit_template.erl").
+
+%%--------------------------------------------------------------------
+%% @doc compile
+%% @end
+%%--------------------------------------------------------------------
+compile_file(#{ name := Identifier } = Struct) ->
+    ModuleName = create_module_name(?DEFAULT_PREFIX_FILE, Identifier),
+    NewStruct = Struct#{ module_name => ModuleName },
+    case merl_compile_and_load(NewStruct) of
+	{ok, _} ->
+	    {ok, ModuleName};
+	Elsewise -> Elsewise
+    end.
 
 %%--------------------------------------------------------------------
 %%
 %%--------------------------------------------------------------------
-compile(#{ name := Identifier } = Struct) ->
-    ModuleName = create_module_name("gabarit@", Identifier),
+compile_string(#{ name := Identifier } = Struct) ->
+    ModuleName = create_module_name(?DEFAULT_PREFIX_STRING, Identifier),
     merl_compile_and_load(Struct#{ module_name => ModuleName }).
+
+%%--------------------------------------------------------------------
+%%
+%%--------------------------------------------------------------------
+compile(Struct) when is_map(Struct) ->
+    merl_compile_and_load(Struct).
 
 %%--------------------------------------------------------------------
 %%
 %%--------------------------------------------------------------------
 find_and_compile() ->
     Tree = tree(),
-    lists:map(fun compile/1, Tree).
+    lists:map(fun compile_file/1, Tree).
 
 %%--------------------------------------------------------------------
 %%
@@ -43,17 +64,28 @@ create_module_name(Prefix, Identifier) ->
     end.
 
 %%--------------------------------------------------------------------
+%%
+%%--------------------------------------------------------------------
+find_template_file_module(Identifier) ->
+    ModuleName = string:concat(?DEFAULT_PREFIX_FILE, Identifier),
+    try
+	erlang:list_to_existing_atom(ModuleName)
+    catch
+	_:_ -> throw({error, ModuleName})
+    end.
+
+%%--------------------------------------------------------------------
 %% @doc list the current path used to load the templates.
 %% @end
 %%--------------------------------------------------------------------
-path() -> 
+path() ->
     application:get_env(awesome, templates_path, ?DEFAULT_PATH).
 
 %%--------------------------------------------------------------------
 %% @doc list all templates in default templates path.
 %% @end
 %%--------------------------------------------------------------------
-tree() -> 
+tree() ->
     Tree = tree(path()),
     lists:foldl(fun tree_filter/2, [], Tree).
 
@@ -61,18 +93,18 @@ tree() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-tree(Path) -> tree(Path, []).
+tree(Path) -> tree(Path, [], Path).
 
 %%--------------------------------------------------------------------
 %% @hidden
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-tree(Path, Buffer) ->
+tree(Path, Buffer, Root) ->
     case file:list_dir(Path) of
 	{ok, Files} ->
-	    tree(Path, Files, Buffer);
-	{error, Error} -> 
+	    tree(Path, Files, Buffer, Root);
+	{error, Error} ->
 	    throw({error, Error})
     end.
 
@@ -81,51 +113,104 @@ tree(Path, Buffer) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-tree(_, [], Buffer) -> Buffer;
-tree(Path, [File|Files], Buffer) ->
+tree(_, [], Buffer, Root) -> Buffer;
+tree(Path, [File|Files], Buffer, Root) ->
     FilePath = filename:join([Path, File]),
     case filelib:is_dir(FilePath) of
-        true -> tree(FilePath, Buffer);
-        false -> tree(Path, Files, [{Path, FilePath}|Buffer])
+	true -> 
+	    tree(FilePath, Buffer, Root);
+	false -> 
+	    F = filename:split(FilePath),
+	    R = filename:split(Root),
+	    S = lists:subtract(F, R),
+	    RelativePath = filename:join(S),
+	    tree(Path, Files, [{Path, FilePath, RelativePath}|Buffer], Root)
     end.
 
 %%--------------------------------------------------------------------
 %% @hidden
 %% @doc paths filtering.
+%% @see template_file/2
 %% @end
 %%--------------------------------------------------------------------
-tree_filter({Key, Value}, Acc) ->
-    Origin = filename:split(Key),
+-spec tree_filter({TemplatePath, TemplateFile, RelativePath}, Acc) -> Return when
+      TemplatePath :: string(),
+      TemplateFile :: string(),
+      RelativePath :: string(),
+      Acc :: [string(), ...],
+      Return :: Acc.
+tree_filter({TemplatePath, _TemplateFile, RelativePath}, Acc) ->
+    Return = template_file(TemplatePath, RelativePath),
+    [Return|Acc].
+
+%%--------------------------------------------------------------------
+%%
+%%--------------------------------------------------------------------
+template_file(Filename) ->
+    TemplatePath = path(),
+    template_file(TemplatePath, Filename).
+
+%%--------------------------------------------------------------------
+%% @hidden
+%% @doc this function takes the default path where the file should be
+%% stored and the filename present in this path. If everything is fine,
+%% it will output a map containing all information required to use
+%% the file as template.
+%% @end
+%%--------------------------------------------------------------------
+-spec template_file(TemplatePath, TemplateFile) -> Return when
+      TemplatePath :: string(),
+      TemplateFile :: string(),
+      Return :: map().
+template_file(TemplatePath, TemplateFile) ->
+    case filelib:safe_relative_path(TemplateFile, TemplatePath) of
+	unsafe -> {error, unsafe};
+	SafeFile ->
+	    SafePath = filename:join(path(), SafeFile),
+	    AbsolutePath = filename:absname(SafePath),
+	    Filename = filename:basename(SafePath),
+	    Identifier = template_file_identifier(TemplatePath, Filename),
+	    case file:read_file(SafePath) of
+		{ok, Content} ->
+		    #{ name => Identifier
+		     , filename => Filename
+		     , absolute_path => AbsolutePath
+		     , relative_path => TemplatePath
+		     , template => Content
+		     };
+		{error, Error} ->
+		    throw(Error)
+	    end
+    end.
+
+%%--------------------------------------------------------------------
+%% create a file identifier based on default path
+%%--------------------------------------------------------------------
+template_file_identifier(TemplatePath, Filename) ->
+    Origin = filename:split(TemplatePath),
     Root = filename:split(path()),
-    Filename = lists:last(filename:split(Value)),
-    AbsolutePath = filename:absname(Value),
     Subtract = lists:subtract(Origin, Root),
-    Identifier = case Subtract of
-		     [] -> filename:join(["/", Filename]);
-		     _ -> filename:join(["/", Subtract, Filename])
-		 end,
-    {ok, Content} = file:read_file(AbsolutePath),
-    [#{ name => Identifier
-      , filename => Filename
-      , absolute_path => AbsolutePath
-      , relative_path => Key
-      , template => Content
-      }|Acc].
+    template_file_identifier2(Filename, Subtract).
+
+template_file_identifier2(Filename, []) ->
+    filename:join(["/", Filename]);
+template_file_identifier2(Filename, Subtract) ->
+    filename:join(["/", Subtract, Filename]).
 
 %%--------------------------------------------------------------------
 %% @hidden
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-merl_template() -> 
+merl_template() ->
     merl_template(?DEFAULT_MERL_TEMPLATE).
-     
+
 %%--------------------------------------------------------------------
 %% @hidden
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-merl_template(TemplateFile) -> 
+merl_template(TemplateFile) ->
     case file:read_file(TemplateFile) of
 	{ok, Content} ->
 	    Content;
@@ -210,7 +295,7 @@ merl_subst_created_at(Template, #{ module_name := ModuleName } = Opts) ->
 		    true ->
 			Original = ModuleName:created_at(),
 			maps:get(created_at, Opts, Original);
-		    false -> 
+		    false ->
 			erlang:system_time()
 		end,
     Term = merl:term(CreatedAt),
