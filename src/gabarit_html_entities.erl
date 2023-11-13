@@ -10,14 +10,13 @@
 -define(ENCODE_ENTITY(X, Y), encode_entity(Y) -> X).
 -define(DECODE_ENTITY(X, Y), decode_entity(X) -> Y).
 
-
 %%--------------------------------------------------------------------
 %%
 %%--------------------------------------------------------------------
-encode(List) 
+encode(List)
   when is_list(List) ->
     encode(list_to_binary(List));
-encode(Binary) 
+encode(Binary)
   when is_binary(Binary) ->
     encode(Binary, <<>>).
 
@@ -33,7 +32,7 @@ decode(Binary) ->
     decode(Binary, <<>>).
 
 decode(<<>>, Buffer) -> Buffer;
-decode(<<"&", Rest/binary>>, Buffer) -> 
+decode(<<"&", Rest/binary>>, Buffer) ->
     case decode_extract(Rest, <<>>, 0) of
         {ok, EntityPart, Rest2} ->
             Decoded = decode_entity(<<"&", EntityPart/binary>>),
@@ -41,16 +40,16 @@ decode(<<"&", Rest/binary>>, Buffer) ->
         Elsewise ->
             Elsewise
     end;
-decode(<<Char/utf8, Rest/binary>>, Buffer) -> 
+decode(<<Char/utf8, Rest/binary>>, Buffer) ->
     decode(Rest, <<Buffer/binary, Char/utf8>>).
 
-decode_extract(<<>>, Buffer, _) -> {ok, Buffer};    
+decode_extract(<<>>, Buffer, _) -> {ok, Buffer};
 decode_extract(_, Buffer, 40) -> {ok, Buffer};
 decode_extract(<<";", Rest/binary>>, Buffer, _) ->
     {ok, <<Buffer/binary, ";">>, Rest};
 decode_extract(<<Char/utf8, Rest/binary>>, Buffer, Counter) ->
     decode_extract(Rest, <<Buffer/binary, Char/utf8>>, Counter+1).
-    
+
 %%--------------------------------------------------------------------
 %%
 %%--------------------------------------------------------------------
@@ -2180,7 +2179,7 @@ decode_extract(<<Char/utf8, Rest/binary>>, Buffer, Counter) ->
 ?ENCODE_ENTITY(<<"&zwj);"/utf8>>, <<"‍"/utf8>>);
 ?ENCODE_ENTITY(<<"&zwnj);"/utf8>>, <<"‌"/utf8>>);
 encode_entity(Char) when is_binary(Char) -> Char.
-     
+
 %%--------------------------------------------------------------------
 %%
 %%--------------------------------------------------------------------
