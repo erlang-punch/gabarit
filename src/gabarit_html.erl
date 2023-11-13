@@ -54,6 +54,9 @@ tags(Elements, Opts) ->
 %%
 %%--------------------------------------------------------------------
 tags([], Buffer, _Opts) -> Buffer;
+tags(Element, Buffer, Opts)
+  when is_tuple(Element) ->
+    tags([Element], Buffer, Opts);
 tags([Element|Elements], Buffer, Opts)
   when is_tuple(Element) ->
     Tag = tag(Element, Opts),
