@@ -62,6 +62,8 @@ decode_extract(<<";", Rest/binary>>, Buffer, _) ->
 decode_extract(<<Char/utf8, Rest/binary>>, Buffer, Counter) ->
     decode_extract(Rest, <<Buffer/binary, Char/utf8>>, Counter+1).
 
+
+
 %%--------------------------------------------------------------------
 %%
 %%--------------------------------------------------------------------
