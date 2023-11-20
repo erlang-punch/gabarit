@@ -12,10 +12,24 @@
 %%% `merl', where all entities/chars are being stored instead of
 %%% starting a process.
 %%%
+%%% For now, everything is done inside a `gen_server':
+%%%
+%%% ```
+%%% {ok, _} = gabarit_entities:start().
+%%%
+%%% {ok, #{ "8879-isolat1" => <<"&eacute;">>
+%%%       , "9573-2003-isolat1" => <<"&eacute;">>,
+%%%       , "xhtml1-lat1" => <<"&eacute;">>
+%%%       }
+%%% } = gabarit_entities:char_to_entity(<<"é"/utf8>>).
+%%%
+%%% {ok,<<"é"/utf8>>} 
+%%%   = gabarit_entities:entity_to_char(<<"&eacute;"/utf8>>).
+%%% '''
+%%%
 %%% @end
 %%%===================================================================
 -module(gabarit_entities).
--compile(export_all).
 -behavior(gen_server).
 -export([start/0, start_link/0]).
 -export([entity_to_char/1, char_to_entity/1]).
@@ -151,7 +165,6 @@ options() ->
 %%
 %%--------------------------------------------------------------------
 parse() ->
-    {ok, Cwd} = file:get_cwd(),
     Priv = code:priv_dir(gabarit),
     Filename = filename:join(Priv, "unicode.xml"),
     {ok, Content} = file:read_file(Filename),
@@ -175,7 +188,7 @@ stream(Content) ->
 %%--------------------------------------------------------------------
 list_to_map(#{}, ByChars, ByEntities) -> {ok, {ByChars, ByEntities}};
 list_to_map([], ByChars, ByEntities) -> {ok, {ByChars, ByEntities}};
-list_to_map([#{ binary := Binary, entity := Entities } = Char|Rest], ByChars, ByEntities) ->
+list_to_map([#{ binary := Binary, entity := Entities }|Rest], ByChars, ByEntities) ->
     EntitiesMap = entities_to_map(Entities, #{}),
     EntityChar = entity_to_char(Binary, Entities, #{}),
     list_to_map(Rest, ByChars#{ Binary => EntitiesMap }, maps:merge(ByEntities, EntityChar));
@@ -192,14 +205,14 @@ entities_to_map([#{ id := Id, set := Set }|Rest], Buffer) ->
 %%--------------------------------------------------------------------
 %%
 %%--------------------------------------------------------------------
-entity_to_char(Binary, [], Buffer) -> Buffer;
+entity_to_char(_Binary, [], Buffer) -> Buffer;
 entity_to_char(Binary, [#{ id := Id }|Rest], Buffer) ->
     entity_to_char(Binary, Rest, Buffer#{ Id => Binary }).
 
 %%--------------------------------------------------------------------
 %%
 %%--------------------------------------------------------------------
-event(startDocument, Location, State) -> State;
+event(startDocument, _Location, State) -> State;
 event({startElement, [], "unicode", _, Attributes}, _Location, State) ->
     case get_attribute(Attributes, "unicode") of
         "15.1" -> State;
@@ -207,9 +220,9 @@ event({startElement, [], "unicode", _, Attributes}, _Location, State) ->
     end;
 event({startElement, [], "entitygroups", _, _Attributes}, _Location, State) ->
     State;
-event({startElement, [], "charlist", _, _Attributes}, _Location, State) ->
+event({startElement, [], "charlist", _, _Attributes}, _Location, _State) ->
     {charlist, #{}};
-event({startElement, [], "character",_,Attributes}, Location,  {charlist, Buffer} = State) ->
+event({startElement, [], "character",_,Attributes}, _Location,  {charlist, Buffer}) ->
     Id = get_attribute(Attributes, "id"),
     Dec = get_attribute(Attributes, "dec"),
     Mode = get_attribute(Attributes, "mode"),
@@ -226,7 +239,7 @@ event({startElement, [], "character",_,Attributes}, Location,  {charlist, Buffer
         {error, _} ->
             {charlist, Buffer}
     end;
-event({startElement, [], "entity", _, Attributes}, Location, {charlist, [Char|Buffer]}) ->
+event({startElement, [], "entity", _, Attributes}, _Location, {charlist, [Char|Buffer]}) ->
     EntityId = get_attribute(Attributes, "id"),
     Set = get_attribute(Attributes, "set"),
     BinaryEntity = list_to_binary(EntityId),
@@ -237,14 +250,8 @@ event({startElement, [], "entity", _, Attributes}, Location, {charlist, [Char|Bu
         _ ->
             {charlist, [Char#{ entity => [Entity]}|Buffer]}
     end;
-event(Event, Location, State) ->
+event(_Event, _Location, State) ->
     State.
-
-%%--------------------------------------------------------------------
-%%
-%%--------------------------------------------------------------------
-hexadecimal_to_utf8([$U|Hex]) ->
-    list_to_integer(Hex, 16).
 
 %%--------------------------------------------------------------------
 %%
@@ -262,5 +269,5 @@ decimal_to_utf8(Int) ->
 %%--------------------------------------------------------------------
 get_attribute(List, Key) -> get_attribute(List, Key, undefined).
 get_attribute([], _, Default) -> Default;
-get_attribute([{_,_,Key,Value}|_], Key, Default) -> Value;
-get_attribute([Attribute|Rest], Key, Default) -> get_attribute(Rest, Key, Default).
+get_attribute([{_,_,Key,Value}|_], Key, _Default) -> Value;
+get_attribute([_Attribute|Rest], Key, Default) -> get_attribute(Rest, Key, Default).
