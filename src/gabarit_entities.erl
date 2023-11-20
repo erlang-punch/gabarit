@@ -25,6 +25,9 @@
 %%%
 %%% {ok,<<"é"/utf8>>} 
 %%%   = gabarit_entities:entity_to_char(<<"&eacute;"/utf8>>).
+%%%
+%%% {ok,<<"&agrave;">>}
+%%%   = gabarit_entities:char_to_entity(<<"à"/utf8>>, "xhtml1-lat1").
 %%% '''
 %%%
 %%% @end
@@ -32,7 +35,7 @@
 -module(gabarit_entities).
 -behavior(gen_server).
 -export([start/0, start_link/0]).
--export([entity_to_char/1, char_to_entity/1]).
+-export([entity_to_char/1, char_to_entity/1, char_to_entity/2]).
 -export([get_entities/0, get_chars/0]).
 -export([init/1]).
 -export([handle_info/2, handle_cast/2, handle_call/3]).
@@ -75,12 +78,25 @@ entity_to_char(<<Entity/binary>>) ->
 %%--------------------------------------------------------------------
 -spec char_to_entity(Entity) -> Return when
       Entity :: binary(),
-      Return :: {ok, binary()}
+      Return :: {ok, map()}
               | {error, {binary(), not_found}}
               | timeout.
 
 char_to_entity(<<Char/binary>>) ->
     gen_server:call(?MODULE, {char_to_entity, Char}, 1000).
+
+%%--------------------------------------------------------------------
+%%
+%%--------------------------------------------------------------------
+-spec char_to_entity(Entity, Mode) -> Return when
+      Entity :: binary(),
+      Mode   :: string(),
+      Return :: {ok, binary()}
+              | {error, {binary(), not_found}}
+              | timeout.
+
+char_to_entity(<<Char/binary>>, Mode) ->
+    gen_server:call(?MODULE, {char_to_entity, Char, Mode}, 1000).
 
 %%--------------------------------------------------------------------
 %%
@@ -112,6 +128,15 @@ init(Args) ->
 %%--------------------------------------------------------------------
 %%
 %%--------------------------------------------------------------------
+handle_call({char_to_entity, Char, Mode}, _, #?MODULE{ chars = Chars } = State) ->
+    case maps:get(Char, Chars, undefined) of
+        undefined -> 
+            {reply, {error, {Char, not_found}}, State};
+        #{ Mode := Entity } ->
+            {reply, {ok, Entity}, State};
+        _ -> 
+            {reply, {error, {Char, not_found}}, State}
+    end;
 handle_call({char_to_entity, Char}, _, #?MODULE{ chars = Chars, options = #{ default := Default }} = State) ->
     case maps:get(Char, Chars, undefined) of
         undefined -> 
