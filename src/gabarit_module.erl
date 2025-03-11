@@ -1,4 +1,6 @@
 %%%===================================================================
+%%% @author Maartz <maartz@protonmail.com>
+%%%
 %%% @doc Module naming utilities for Gabarit template system.
 %%%
 %%% This module provides functions for dynamically creating and managing

@@ -1,4 +1,6 @@
 %%%-------------------------------------------------------------------
+%%% @author Maartz <maartz@protonmail.com>
+%%%
 %%% @doc Template storage and management module.
 %%%
 %%% This module implements a state machine for managing templates within namespaces.
