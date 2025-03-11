@@ -1,4 +1,6 @@
 %%%===================================================================
+%%% @author Maartz <maartz@protonmail.com>
+%%%
 %%% @doc Main interface for the Gabarit template management system.
 %%%
 %%% This module provides a public API for interacting with the Gabarit

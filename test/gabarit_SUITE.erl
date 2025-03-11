@@ -1,4 +1,6 @@
 %%%-------------------------------------------------------------------
+%%% @author Maartz <maartz@protonmail.com>
+%%%
 %%% @doc Test suite for the gabarit template management system.
 %%%
 %%% This test suite verifies the core functionality of the gabarit template
