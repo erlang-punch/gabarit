@@ -39,6 +39,31 @@
 -define(DEFAULT_PREFIX_FILE, "gabarit@").
 -define(DEFAULT_PREFIX_STRING, "gabarit$").
 
+%% Type definitions
+-type namespace() :: binary() | string() | atom().
+-type template_id() :: integer().
+-type version() :: pos_integer().
+-type timestamp() :: non_neg_integer().
+-type content() :: binary().
+-type compressed_content() :: binary().
+-type template_path() :: binary() | string().
+-type template_map() :: #{
+    path => template_path(),
+    content => content(),
+    module_name => atom(),
+    name => template_id(),
+    filename => template_path(),
+    template => content()
+}.
+-type limit() :: non_neg_integer().
+-type error_reason() ::
+    template_not_found |
+    version_not_found |
+    namespace_not_found |
+    namespace_limit_reached |
+    term().
+-type options() :: [{atom(), term()}].
+
 %% State record definition
 -record(?MODULE,
         {persistence_module = none :: atom() | none,
@@ -51,12 +76,14 @@
 
 %% @doc Returns the callback mode for this gen_statem.
 %% @end
+-spec callback_mode() -> state_functions.
 callback_mode() ->
   state_functions.
 
 %% @doc Initializes the gen_statem.
 %% Creates the ETS tables and sets up the initial state.
 %% @end
+-spec init(Options :: options()) -> {ok, unlocked, #gabarit_store{}}.
 init(_Args) ->
   ets:new(?NAMESPACE_TABLE, [named_table, set, protected]),
   ets:new(?TEMPLATE_TABLE, [named_table, set, protected]),
@@ -76,6 +103,7 @@ init(_Args) ->
 %% @param Opts Configuration options for the template store
 %% @returns {ok, Pid} | {error, Reason}
 %% @end
+-spec start_link(Opts :: options()) -> {ok, pid()} | {error, term()}.
 start_link(Opts) ->
   gen_statem:start_link({local, ?MODULE}, ?MODULE, Opts, []).
 
@@ -84,6 +112,7 @@ start_link(Opts) ->
 %% @param Limit Maximum number of templates allowed in the namespace
 %% @returns ok | {error, Reason}
 %% @end
+-spec add_namespace(Namespace :: namespace(), Limit :: limit()) -> ok | {error, error_reason()}.
 add_namespace(Namespace, Limit) ->
   gen_statem:call(?MODULE, {add_namespace, Namespace, Limit}).
 
@@ -93,6 +122,8 @@ add_namespace(Namespace, Limit) ->
 %% @param Content The template content
 %% @returns {ok, TemplateId} | {error, Reason}
 %% @end
+-spec add_template(Namespace :: namespace(), Template :: template_path(), Content :: content()) ->
+    {ok, template_id()} | {error, error_reason()}.
 add_template(Namespace, Template, Content) ->
   gen_statem:call(?MODULE,
                   {add_template, Namespace, #{path => Template, content => Content}}).
@@ -103,6 +134,8 @@ add_template(Namespace, Template, Content) ->
 %% @param Content The new template content
 %% @returns {ok, NewVersion} | {error, Reason}
 %% @end
+-spec update_template(TemplateId :: template_id(), Content :: content()) ->
+    {ok, version()} | {error, error_reason()}.
 update_template(TemplateId, Content) ->
   gen_statem:call(?MODULE, {update_template, TemplateId, Content}).
 
@@ -110,6 +143,7 @@ update_template(TemplateId, Content) ->
 %% @param TemplateId The template identifier
 %% @returns {ok, Content} | {error, Reason}
 %% @end
+-spec get_template(TemplateId :: template_id()) -> {ok, content()} | {error, error_reason()}.
 get_template(TemplateId) ->
   gen_statem:call(?MODULE, {get_template, TemplateId}).
 
@@ -118,12 +152,15 @@ get_template(TemplateId) ->
 %% @param Version The version number to retrieve
 %% @returns {ok, Content} | {error, Reason}
 %% @end
+-spec get_template_version(TemplateId :: template_id(), Version :: version()) ->
+    {ok, content()} | {error, error_reason()}.
 get_template_version(TemplateId, Version) ->
   gen_statem:call(?MODULE, {get_template_version, TemplateId, Version}).
 
 %% @doc Lists all defined namespaces.
 %% @returns {ok, [{Namespace, Limit}]} | {error, Reason}
 %% @end
+-spec list_namespaces() -> {ok, [{namespace(), limit()}]} | {error, error_reason()}.
 list_namespaces() ->
   gen_statem:call(?MODULE, list_namespaces).
 
@@ -131,6 +168,8 @@ list_namespaces() ->
 %% @param Namespace The namespace to list templates from
 %% @returns {ok, [{TemplateId, Path}]} | {error, Reason}
 %% @end
+-spec list_templates(Namespace :: namespace()) ->
+    {ok, [{template_id(), template_path()}]} | {error, error_reason()}.
 list_templates(Namespace) ->
   gen_statem:call(?MODULE, {list_templates, Namespace}).
 
@@ -138,6 +177,8 @@ list_templates(Namespace) ->
 %% @param TemplateId The template identifier
 %% @returns {ok, [{Version, Timestamp}]} | {error, Reason}
 %% @end
+-spec list_versions(TemplateId :: template_id()) ->
+    {ok, [{version(), timestamp()}]} | {error, error_reason()}.
 list_versions(TemplateId) ->
   gen_statem:call(?MODULE, {list_versions, TemplateId}).
 
@@ -147,6 +188,8 @@ list_versions(TemplateId) ->
 %% @param Version The version to roll back to
 %% @returns {ok, Result} | {error, Reason}
 %% @end
+-spec rollback(TemplateId :: template_id(), Version :: version()) ->
+    {ok, term()} | {error, error_reason()}.
 rollback(TemplateId, Version) ->
   case get_template_version(TemplateId, Version) of
     {ok, Content} ->
@@ -171,6 +214,8 @@ rollback(TemplateId, Version) ->
 %% @param TemplateId The template identifier
 %% @returns {ok, #{namespace => Namespace, path => Path}} | {error, Reason}
 %% @end
+-spec get_template_info(TemplateId :: template_id()) ->
+    {ok, #{namespace := namespace(), path := template_path()}} | {error, error_reason()}.
 get_template_info(TemplateId) ->
   case ets:lookup(?TEMPLATE_TABLE, TemplateId) of
     [{TemplateId, Namespace, Path, _}] ->
@@ -184,6 +229,8 @@ get_template_info(TemplateId) ->
 %% @param Template The template structure
 %% @returns {ok, Result} | {error, Reason}
 %% @end
+-spec compile_template(TemplateId :: template_id(), Template :: template_map()) ->
+    {ok, term()} | {error, error_reason()}.
 compile_template(TemplateId, Template) ->
   ModuleName = gabarit_module:name(?DEFAULT_PREFIX_FILE, TemplateId),
   gabarit_compiler:compile_file(Template#{module_name => ModuleName}).
@@ -195,6 +242,10 @@ compile_template(TemplateId, Template) ->
 %% @doc Handles events in the unlocked state.
 %% In this state, all operations are permitted.
 %% @end
+-spec unlocked(EventType :: gen_statem:event_type(),
+               EventContent :: term(),
+               State :: #gabarit_store{}) ->
+    gen_statem:event_handler_result(#gabarit_store{}).
 unlocked(internal, cleanup, State) ->
   perform_cleanup(),
   erlang:send_after(State#?MODULE.cleanup_interval, self(), cleanup),
@@ -276,6 +327,10 @@ unlocked(_EventType, _EventContent, State) ->
 %% @doc Handles events in the locked state.
 %% In this state, adding new templates is restricted.
 %% @end
+-spec locked(EventType :: gen_statem:event_type(),
+             EventContent :: term(),
+             State :: #gabarit_store{}) ->
+    gen_statem:event_handler_result(#gabarit_store{}).
 locked(internal, cleanup, State) ->
   perform_cleanup(),
   erlang:send_after(State#?MODULE.cleanup_interval, self(), cleanup),
@@ -330,6 +385,8 @@ locked(_EventType, _EventContent, State) ->
 %% @param Namespace The namespace to check
 %% @returns {ok, CurrentCount} | {error, Reason}
 %% @private
+-spec check_namespace_limit(Namespace :: namespace()) ->
+    {ok, non_neg_integer()} | {error, error_reason()}.
 check_namespace_limit(Namespace) ->
   case ets:lookup(?NAMESPACE_TABLE, Namespace) of
     [{Namespace, Limit, Count}] when Count < Limit ->
@@ -343,6 +400,7 @@ check_namespace_limit(Namespace) ->
 %% @doc Generates a unique template identifier.
 %% @returns TemplateId :: integer()
 %% @private
+-spec generate_template_id() -> template_id().
 generate_template_id() ->
   erlang:phash2({node(), self(), erlang:system_time(), make_ref()}).
 
@@ -351,6 +409,8 @@ generate_template_id() ->
 %% @param Threshold Size threshold for compression in bytes
 %% @returns {CompressedContent, IsCompressed}
 %% @private
+-spec compress_if_needed(Content :: content(), Threshold :: non_neg_integer()) ->
+    {compressed_content(), boolean()}.
 compress_if_needed(Content, Threshold) ->
   if byte_size(Content) > Threshold ->
        {zlib:compress(Content), true};
@@ -363,6 +423,7 @@ compress_if_needed(Content, Threshold) ->
 %% @param IsCompressed Boolean indicating if content is compressed
 %% @returns DecompressedContent
 %% @private
+-spec decompress_if_needed(CompressedContent :: compressed_content(), IsCompressed :: boolean()) -> content().
 decompress_if_needed(Content, true) ->
   zlib:uncompress(Content);
 decompress_if_needed(Content, false) ->
@@ -372,6 +433,7 @@ decompress_if_needed(Content, false) ->
 %% Keeps a configurable number of the most recent versions.
 %% @returns ok
 %% @private
+-spec perform_cleanup() -> ok.
 perform_cleanup() ->
   Templates = ets:tab2list(?TEMPLATE_TABLE),
   lists:foreach(fun perform_cleanup_foreach/1, Templates),
@@ -382,6 +444,11 @@ perform_cleanup() ->
 %% @param {TemplateId, Namespace, Path, CurrentVersion} Template information
 %% @returns ok
 %% @private
+-spec perform_cleanup_foreach(
+    {TemplateId :: template_id(),
+     _Namespace :: namespace(),
+     _Path :: template_path(),
+     CurrentVersion :: version()}) -> ok.
 perform_cleanup_foreach({TemplateId, _Namespace, _Path, CurrentVersion}) ->
   AllVersions = get_all_template_versions(TemplateId),
   VersionsToKeep = select_versions_to_keep(AllVersions, CurrentVersion),
@@ -392,6 +459,8 @@ perform_cleanup_foreach({TemplateId, _Namespace, _Path, CurrentVersion}) ->
 %% @param TemplateId The ID of the template
 %% @returns [{Version, Timestamp}] List of versions with their timestamps
 %% @private
+-spec get_all_template_versions(TemplateId :: template_id()) ->
+    [{Version :: version(), Timestamp :: timestamp()}].
 get_all_template_versions(TemplateId) ->
   MatchedObjects = ets:match_object(?VERSION_TABLE, {{TemplateId, '_'}, '_', '_', '_'}),
   [{Version, Timestamp} || {{_, Version}, _, _, Timestamp} <- MatchedObjects].
@@ -401,6 +470,9 @@ get_all_template_versions(TemplateId) ->
 %% @param CurrentVersion The currently active version that must be kept
 %% @returns [Version] List of versions to keep
 %% @private
+-spec select_versions_to_keep(
+    Versions :: [{Version :: version(), Timestamp :: timestamp()}],
+    CurrentVersion :: version()) -> [version()].
 select_versions_to_keep(Versions, CurrentVersion) ->
   MaxVersionsToKeep = application:get_env(gabarit, max_versions_to_keep, 5),
   SortedVersions = lists:sort(fun({_V1, T1}, {_V2, T2}) -> T1 > T2 end, Versions),
@@ -414,6 +486,10 @@ select_versions_to_keep(Versions, CurrentVersion) ->
 %% @param VersionsToKeep List of versions to keep
 %% @returns ok
 %% @private
+-spec delete_old_versions(
+    TemplateId :: template_id(),
+    AllVersions :: [{Version :: version(), Timestamp :: timestamp()}],
+    VersionsToKeep :: [version()]) -> ok.
 delete_old_versions(TemplateId, AllVersions, VersionsToKeep) ->
   VersionsToDelete = [V || {V, _} <- AllVersions, not lists:member(V, VersionsToKeep)],
   lists:foreach(fun(Version) ->
@@ -427,6 +503,10 @@ delete_old_versions(TemplateId, AllVersions, VersionsToKeep) ->
 %% @param State The current state
 %% @returns {ok, NewVersion} | {error, Reason}
 %% @private
+-spec update_template_impl(
+    TemplateId :: template_id(),
+    Content :: content(),
+    State :: #gabarit_store{}) -> {ok, version()} | {error, error_reason()}.
 update_template_impl(TemplateId, Content, State) ->
   case ets:lookup(?TEMPLATE_TABLE, TemplateId) of
     [{TemplateId, Namespace, Path, CurrentVersion}] ->
@@ -452,6 +532,8 @@ update_template_impl(TemplateId, Content, State) ->
 %% @param TemplateId The template identifier
 %% @returns {ok, Content} | {error, Reason}
 %% @private
+-spec get_template_impl(TemplateId :: template_id()) ->
+    {ok, content()} | {error, error_reason()}.
 get_template_impl(TemplateId) ->
   case ets:lookup(?TEMPLATE_TABLE, TemplateId) of
     [{TemplateId, _Namespace, _Path, CurrentVersion}] ->
@@ -465,6 +547,8 @@ get_template_impl(TemplateId) ->
 %% @param Version The version to retrieve
 %% @returns {ok, Content} | {error, Reason}
 %% @private
+-spec get_template_version_impl(TemplateId :: template_id(), Version :: version()) ->
+    {ok, content()} | {error, error_reason()}.
 get_template_version_impl(TemplateId, Version) ->
   case ets:lookup(?VERSION_TABLE, {TemplateId, Version}) of
     [{{_, _}, Content, IsCompressed, _}] ->
