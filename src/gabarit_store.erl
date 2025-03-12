@@ -21,22 +21,13 @@
 %%% @end
 %%%-------------------------------------------------------------------
 -module(gabarit_store).
+
 -behavior(gen_statem).
 
 %% API exports
--export([start_link/1,
-         add_namespace/2,
-         add_template/3,
-         update_template/2,
-         get_template/1,
-         get_template_info/1,
-         compile_template/2,
-         get_template_version/2,
-         list_namespaces/0,
-         list_templates/1,
-         list_versions/1,
-         rollback/2]).
-
+-export([start_link/1, add_namespace/2, add_template/3, update_template/2, get_template/1,
+         get_template_info/1, compile_template/2, get_template_version/2, list_namespaces/0,
+         list_templates/1, list_versions/1, rollback/2]).
 %% gen_statem callbacks
 -export([init/1, callback_mode/0, unlocked/3, locked/3]).
 
@@ -44,13 +35,12 @@
 -define(NAMESPACE_TABLE, gabarit_namespaces).
 -define(TEMPLATE_TABLE, gabarit_templates).
 -define(VERSION_TABLE, gabarit_versions).
-
 %% Define default prefixes
 -define(DEFAULT_PREFIX_FILE, "gabarit@").
 -define(DEFAULT_PREFIX_STRING, "gabarit$").
 
 %% State record definition
--record(state,
+-record(?MODULE,
         {persistence_module = none :: atom() | none,
          cleanup_interval = 3600000 :: non_neg_integer(),
          compress_threshold = 10240 :: non_neg_integer()}).
@@ -72,9 +62,9 @@ init(_Args) ->
   ets:new(?TEMPLATE_TABLE, [named_table, set, protected]),
   ets:new(?VERSION_TABLE, [named_table, ordered_set, protected]),
 
-  State = #state{},
+  State = #?MODULE{},
 
-  erlang:send_after(State#state.cleanup_interval, self(), cleanup),
+  erlang:send_after(State#?MODULE.cleanup_interval, self(), cleanup),
 
   {ok, unlocked, State}.
 
@@ -164,11 +154,10 @@ rollback(TemplateId, Version) ->
 
       case get_template_info(TemplateId) of
         {ok, TemplateInfo} ->
-          TemplateStruct = #{
-            name => TemplateId,
-            filename => maps:get(path, TemplateInfo),
-            template => Content
-          },
+          TemplateStruct =
+            #{name => TemplateId,
+              filename => maps:get(path, TemplateInfo),
+              template => Content},
           % Compile the template
           compile_template(TemplateId, TemplateStruct);
         Error ->
@@ -208,14 +197,12 @@ compile_template(TemplateId, Template) ->
 %% @end
 unlocked(internal, cleanup, State) ->
   perform_cleanup(),
-  erlang:send_after(State#state.cleanup_interval, self(), cleanup),
+  erlang:send_after(State#?MODULE.cleanup_interval, self(), cleanup),
   {keep_state, State};
-
 unlocked({call, From}, {add_namespace, Namespace, Limit}, State) ->
   ets:insert(?NAMESPACE_TABLE, {Namespace, Limit, 0}),
   gen_statem:reply(From, ok),
   {keep_state, State};
-
 unlocked({call, From}, {add_template, Namespace, Template}, State) ->
   case check_namespace_limit(Namespace) of
     {ok, _} ->
@@ -224,10 +211,14 @@ unlocked({call, From}, {add_template, Namespace, Template}, State) ->
       Content = maps:get(content, Template, <<>>),
 
       {CompressedContent, IsCompressed} =
-        compress_if_needed(Content, State#state.compress_threshold),
+        compress_if_needed(Content, State#?MODULE.compress_threshold),
 
       ets:insert(?TEMPLATE_TABLE, {TemplateId, Namespace, Path, 1}),
-      ets:insert(?VERSION_TABLE, {{TemplateId, 1}, CompressedContent, IsCompressed, erlang:system_time(millisecond)}),
+      ets:insert(?VERSION_TABLE,
+                 {{TemplateId, 1},
+                  CompressedContent,
+                  IsCompressed,
+                  erlang:system_time(millisecond)}),
 
       ets:update_counter(?NAMESPACE_TABLE, Namespace, {3, 1}),
 
@@ -243,7 +234,6 @@ unlocked({call, From}, {add_template, Namespace, Template}, State) ->
       gen_statem:reply(From, {error, Reason}),
       {keep_state, State}
   end;
-
 unlocked({call, From}, {update_template, TemplateId, Content}, State) ->
   case update_template_impl(TemplateId, Content, State) of
     {ok, Version} ->
@@ -252,7 +242,6 @@ unlocked({call, From}, {update_template, TemplateId, Content}, State) ->
       gen_statem:reply(From, {error, Reason})
   end,
   {keep_state, State};
-
 unlocked({call, From}, {get_template, TemplateId}, State) ->
   case get_template_impl(TemplateId) of
     {ok, Content} ->
@@ -261,7 +250,6 @@ unlocked({call, From}, {get_template, TemplateId}, State) ->
       gen_statem:reply(From, {error, Reason})
   end,
   {keep_state, State};
-
 unlocked({call, From}, {get_template_version, TemplateId, Version}, State) ->
   case get_template_version_impl(TemplateId, Version) of
     {ok, Content} ->
@@ -270,22 +258,18 @@ unlocked({call, From}, {get_template_version, TemplateId, Version}, State) ->
       gen_statem:reply(From, {error, Reason})
   end,
   {keep_state, State};
-
 unlocked({call, From}, list_namespaces, State) ->
   Namespaces = ets:tab2list(?NAMESPACE_TABLE),
   gen_statem:reply(From, {ok, [{N, L} || {N, L, _} <- Namespaces]}),
   {keep_state, State};
-
 unlocked({call, From}, {list_templates, Namespace}, State) ->
   Templates = ets:match_object(?TEMPLATE_TABLE, {'_', Namespace, '_', '_'}),
   gen_statem:reply(From, {ok, [{Id, Path} || {Id, _, Path, _} <- Templates]}),
   {keep_state, State};
-
 unlocked({call, From}, {list_versions, TemplateId}, State) ->
   Versions = ets:match_object(?VERSION_TABLE, {{TemplateId, '_'}, '_', '_', '_'}),
   gen_statem:reply(From, {ok, [{V, T} || {{_, V}, _, _, T} <- Versions]}),
   {keep_state, State};
-
 unlocked(_EventType, _EventContent, State) ->
   {keep_state, State}.
 
@@ -294,13 +278,11 @@ unlocked(_EventType, _EventContent, State) ->
 %% @end
 locked(internal, cleanup, State) ->
   perform_cleanup(),
-  erlang:send_after(State#state.cleanup_interval, self(), cleanup),
+  erlang:send_after(State#?MODULE.cleanup_interval, self(), cleanup),
   {keep_state, State};
-
 locked({call, From}, {add_template, _Namespace, _Template}, State) ->
   gen_statem:reply(From, {error, namespace_limit_reached}),
   {keep_state, State};
-
 locked({call, From}, {update_template, TemplateId, Content}, State) ->
   case update_template_impl(TemplateId, Content, State) of
     {ok, Version} ->
@@ -309,7 +291,6 @@ locked({call, From}, {update_template, TemplateId, Content}, State) ->
       gen_statem:reply(From, {error, Reason})
   end,
   {keep_state, State};
-
 locked({call, From}, {get_template, TemplateId}, State) ->
   case get_template_impl(TemplateId) of
     {ok, Content} ->
@@ -318,7 +299,6 @@ locked({call, From}, {get_template, TemplateId}, State) ->
       gen_statem:reply(From, {error, Reason})
   end,
   {keep_state, State};
-
 locked({call, From}, {get_template_version, TemplateId, Version}, State) ->
   case get_template_version_impl(TemplateId, Version) of
     {ok, Content} ->
@@ -327,22 +307,18 @@ locked({call, From}, {get_template_version, TemplateId, Version}, State) ->
       gen_statem:reply(From, {error, Reason})
   end,
   {keep_state, State};
-
 locked({call, From}, list_namespaces, State) ->
   Namespaces = ets:tab2list(?NAMESPACE_TABLE),
   gen_statem:reply(From, {ok, [{N, L} || {N, L, _} <- Namespaces]}),
   {keep_state, State};
-
 locked({call, From}, {list_templates, Namespace}, State) ->
   Templates = ets:match_object(?TEMPLATE_TABLE, {'_', Namespace, '_', '_'}),
   gen_statem:reply(From, {ok, [{Id, Path} || {Id, _, Path, _} <- Templates]}),
   {keep_state, State};
-
 locked({call, From}, {list_versions, TemplateId}, State) ->
   Versions = ets:match_object(?VERSION_TABLE, {{TemplateId, '_'}, '_', '_', '_'}),
   gen_statem:reply(From, {ok, [{V, T} || {{_, V}, _, _, T} <- Versions]}),
   {keep_state, State};
-
 locked(_EventType, _EventContent, State) ->
   {keep_state, State}.
 
@@ -402,7 +378,8 @@ perform_cleanup() ->
   MaxVersionsToKeep = application:get_env(gabarit, max_versions_to_keep, 5),
 
   lists:foreach(fun({TemplateId, _Namespace, _Path, CurrentVersion}) ->
-                   AllVersions = ets:match_object(?VERSION_TABLE, {{TemplateId, '_'}, '_', '_', '_'}),
+                   AllVersions =
+                     ets:match_object(?VERSION_TABLE, {{TemplateId, '_'}, '_', '_', '_'}),
                    Versions = [{V, T} || {{_, V}, _, _, T} <- AllVersions],
 
                    SortedVersions = lists:sort(fun({_V1, T1}, {_V2, T2}) -> T1 > T2 end, Versions),
@@ -420,7 +397,8 @@ perform_cleanup() ->
                                       end,
                                       SortedVersions),
 
-                       lists:foreach(fun({V, _}) -> ets:delete(?VERSION_TABLE, {{TemplateId, V}}) end,
+                       lists:foreach(fun({V, _}) -> ets:delete(?VERSION_TABLE, {{TemplateId, V}})
+                                     end,
                                      VersionsToDelete)
                    end
                 end,
@@ -435,20 +413,25 @@ perform_cleanup() ->
 %% @returns {ok, NewVersion} | {error, Reason}
 %% @private
 update_template_impl(TemplateId, Content, State) ->
-    case ets:lookup(?TEMPLATE_TABLE, TemplateId) of
-        [{TemplateId, Namespace, Path, CurrentVersion}] ->
-            {CompressedContent, IsCompressed} = compress_if_needed(Content, State#state.compress_threshold),
+  case ets:lookup(?TEMPLATE_TABLE, TemplateId) of
+    [{TemplateId, Namespace, Path, CurrentVersion}] ->
+      {CompressedContent, IsCompressed} =
+        compress_if_needed(Content, State#?MODULE.compress_threshold),
 
-            NewVersion = CurrentVersion + 1,
+      NewVersion = CurrentVersion + 1,
 
-            ets:insert(?VERSION_TABLE, {{TemplateId, NewVersion}, CompressedContent, IsCompressed, erlang:system_time(millisecond)}),
+      ets:insert(?VERSION_TABLE,
+                 {{TemplateId, NewVersion},
+                  CompressedContent,
+                  IsCompressed,
+                  erlang:system_time(millisecond)}),
 
-            ets:insert(?TEMPLATE_TABLE, {TemplateId, Namespace, Path, NewVersion}),
+      ets:insert(?TEMPLATE_TABLE, {TemplateId, Namespace, Path, NewVersion}),
 
-            {ok, NewVersion};
-        [] ->
-            {error, template_not_found}
-    end.
+      {ok, NewVersion};
+    [] ->
+      {error, template_not_found}
+  end.
 
 %% @doc Implementation of template retrieval.
 %% @param TemplateId The template identifier
@@ -468,10 +451,10 @@ get_template_impl(TemplateId) ->
 %% @returns {ok, Content} | {error, Reason}
 %% @private
 get_template_version_impl(TemplateId, Version) ->
-    case ets:lookup(?VERSION_TABLE, {TemplateId, Version}) of
-        [{{_, _}, Content, IsCompressed, _}] ->
-            DecompressedContent = decompress_if_needed(Content, IsCompressed),
-            {ok, DecompressedContent};
-        [] ->
-            {error, version_not_found}
-    end.
+  case ets:lookup(?VERSION_TABLE, {TemplateId, Version}) of
+    [{{_, _}, Content, IsCompressed, _}] ->
+      DecompressedContent = decompress_if_needed(Content, IsCompressed),
+      {ok, DecompressedContent};
+    [] ->
+      {error, version_not_found}
+  end.
