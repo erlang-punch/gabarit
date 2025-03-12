@@ -117,9 +117,9 @@ tree(_, [], Buffer, Root) -> Buffer;
 tree(Path, [File|Files], Buffer, Root) ->
     FilePath = filename:join([Path, File]),
     case filelib:is_dir(FilePath) of
-	true -> 
+	true ->
 	    tree(FilePath, Buffer, Root);
-	false -> 
+	false ->
 	    F = filename:split(FilePath),
 	    R = filename:split(Root),
 	    S = lists:subtract(F, R),
