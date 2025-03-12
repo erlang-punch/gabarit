@@ -403,15 +403,11 @@ get_all_template_versions(TemplateId) ->
 %% @private
 select_versions_to_keep(Versions, CurrentVersion) ->
   MaxVersionsToKeep = application:get_env(gabarit, max_versions_to_keep, 5),
-  % Sort by timestamp (newest first)
   SortedVersions = lists:sort(fun({_V1, T1}, {_V2, T2}) -> T1 > T2 end, Versions),
-  
+  [CurrentVersion |
+    [V || {V, _} <- lists:sublist(SortedVersions, MaxVersionsToKeep),
+          V =/= CurrentVersion]].
 
-  [CurrentVersion | 
-  [CurrentVersion % Plus keep the most recent versions up to MaxVersionsToKeep
-                  | [V
-                     || {V, _} <- lists:sublist(SortedVersions, MaxVersionsToKeep),
-                        V =/= CurrentVersion]].
 %% @doc Deletes versions that are not in the keep list.
 %% @param TemplateId The ID of the template
 %% @param AllVersions List of all {Version, _Timestamp} tuples
@@ -420,9 +416,10 @@ select_versions_to_keep(Versions, CurrentVersion) ->
 %% @private
 delete_old_versions(TemplateId, AllVersions, VersionsToKeep) ->
   VersionsToDelete = [V || {V, _} <- AllVersions, not lists:member(V, VersionsToKeep)],
-  lists:foreach(fun(Version) -> 
-  lists:foreach(fun(Version) -> ets:delete(?VERSION_TABLE, {{TemplateId, Version}}) end,
-                VersionsToDelete),
+  lists:foreach(fun(Version) ->
+                  ets:delete(?VERSION_TABLE, {{TemplateId, Version}})
+                end, VersionsToDelete),
+  ok.
 
 %% @doc Implementation of template update.
 %% @param TemplateId The template identifier
