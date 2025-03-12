@@ -16,7 +16,7 @@
     exist/1
 ]).
 
--type identifier() :: integer() | term().
+-type id() :: integer() | term().
 -type module_name() :: atom().
 -type prefix() :: string().
 
@@ -38,7 +38,7 @@
 %% @param Identifier A unique identifier for the template (integer or term)
 %% @returns atom() A module name as an atom
 %% @end
--spec name(Prefix :: prefix(), Identifier :: identifier()) -> module_name().
+-spec name(Prefix :: prefix(), Identifier :: id()) -> module_name().
 name(Prefix, Identifier) ->
     IdString = case is_integer(Identifier) of
         true ->
