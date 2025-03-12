@@ -16,6 +16,10 @@
     exist/1
 ]).
 
+-type identifier() :: integer() | term().
+-type module_name() :: atom().
+-type prefix() :: string().
+
 -define(DEFAULT_PREFIX_FILE, "gabarit@").
 -define(DEFAULT_PREFIX_STRING, "gabarit$").
 
@@ -34,6 +38,7 @@
 %% @param Identifier A unique identifier for the template (integer or term)
 %% @returns atom() A module name as an atom
 %% @end
+-spec name(Prefix :: prefix(), Identifier :: identifier()) -> module_name().
 name(Prefix, Identifier) ->
     IdString = case is_integer(Identifier) of
         true ->
@@ -42,16 +47,13 @@ name(Prefix, Identifier) ->
             Hash = erlang:phash2(Identifier),
             integer_to_list(Hash)
     end,
-
     SafeId = if
         length(IdString) > 200 ->
             string:substr(IdString, 1, 200);
         true ->
             IdString
     end,
-
     ModuleName = string:concat(Prefix, SafeId),
-
     try
         erlang:list_to_existing_atom(ModuleName)
     catch
@@ -67,6 +69,7 @@ name(Prefix, Identifier) ->
 %% @param Name A string containing the module name to check
 %% @returns boolean() true if the module name exists as an atom, false otherwise
 %% @end
+-spec exist(Name :: string()) -> boolean().
 exist(Name) ->
     try
         _Module = erlang:list_to_existing_atom(Name),
