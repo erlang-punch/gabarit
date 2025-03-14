@@ -1,6 +1,12 @@
-.PHONY: compile test ct proper clean
+.PHONY: compile test ct proper clean format check-format proptest
 
 all: compile
+
+format:
+	rebar3 fmt -w
+
+check-format:
+	rebar3 fmt --check
 
 compile:
 	rebar3 compile
