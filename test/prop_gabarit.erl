@@ -29,11 +29,8 @@ prop_new_template_creates_valid_module() ->
         TemplateType,
         template_type(),
         run_template_test(
-            % Setup function
             fun() -> create_template_with_placeholder(TemplateType) end,
-            % Execute function
             fun(Filename) -> gabarit:new(Filename) end,
-            % Verify function
             fun is_ok_result/1
         )
     ).
@@ -45,14 +42,11 @@ prop_render_preserves_static_content() ->
         {Template, Context},
         {valid_template_without_vars(), context_map()},
         run_template_test(
-            % Setup function
             fun() -> Template end,
-            % Execute function
             fun(Filename) ->
                 {ok, Module} = gabarit:new(Filename),
                 Module:render(Context)
             end,
-            % Verify function
             fun(Result) ->
                 Rendered = normalize_render_result(Result),
                 Rendered =:= Template
@@ -67,15 +61,12 @@ prop_render_replaces_all_variables() ->
         {TemplateBase, Variables, Context},
         {template_base(), non_empty(list(template_variable())), context_map_with_vars()},
         run_template_test(
-            % Setup function
             fun() -> create_template_with_vars(TemplateBase, Variables) end,
-            % Execute function
             fun(Filename) ->
                 {ok, Module} = gabarit:new(Filename),
                 FullContext = create_context_for_variables(Variables, Context),
                 Module:render(FullContext)
             end,
-            % Verify function
             fun(Result) ->
                 Rendered = normalize_render_result(Result),
                 not contains_any_variable(Rendered, Variables)
@@ -227,7 +218,6 @@ run_template_test(Setup, Execute, Verify) ->
             Execute(Filename)
         catch
             _:Error:Stacktrace ->
-                % Check if the error occurred in the render function
                 case Stacktrace of
                     [{_Module, render, _Args, _Location} | _] ->
                         {error, render_failed};
@@ -313,12 +303,15 @@ cleanup_template_file(RelPath) ->
 setup_template_file(Content) ->
     TemplatePath = gabarit_compiler:path(),
     ok = filelib:ensure_dir(filename:join(TemplatePath, "/")),
-
-    % Create a unique filename based on timestamp
+    case filelib:is_dir(TemplatePath) of
+        false ->
+            ok = file:make_dir(TemplatePath);
+        true ->
+            ok
+    end,
     TemplateFilename =
         "test_template_" ++ integer_to_list(erlang:system_time(millisecond)) ++ ".html",
     FullPath = filename:join(TemplatePath, TemplateFilename),
-
     ok = file:write_file(FullPath, Content),
     TemplateFilename.
 
