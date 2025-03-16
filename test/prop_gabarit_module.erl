@@ -20,6 +20,7 @@ prop_module_name_is_valid_atom() ->
         {module_prefix(), module_identifier()},
         begin
             Result = gabarit_module:name(Prefix, Identifier),
+
             case Result of
                 {ok, ModuleName} ->
                     is_atom(ModuleName) andalso
@@ -31,7 +32,6 @@ prop_module_name_is_valid_atom() ->
             end
         end
     ).
-
 prop_module_exist_returns_correct_result() ->
     ?FORALL(
         ModuleName,
@@ -67,7 +67,7 @@ module_identifier() ->
             case length(Path) > 100 of
                 true -> string:slice(Path, 0, 100);
                 false -> Path
-            en
+            end
         end
     ).
 
