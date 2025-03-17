@@ -25,9 +25,10 @@
 -behavior(gen_statem).
 
 %% API exports
--export([start_link/1, add_namespace/2, add_template/3, update_template/2, get_template/1,
-         get_template_info/1, compile_template/2, get_template_version/2, list_namespaces/0,
-         list_templates/1, list_versions/1, rollback/2]).
+-export([start_link/0, start_link/1]).
+-export([add_namespace/2, add_template/3, update_template/2, get_template/1,
+         get_template_info/1, compile_template/2, get_template_version/2, list_namespaces/0, reset_namespace/2,
+         list_templates/0, list_templates/1, list_versions/1, rollback/2]).
 %% gen_statem callbacks
 -export([init/1, callback_mode/0, unlocked/3, locked/3]).
 
@@ -38,6 +39,7 @@
 %% Define default prefixes
 -define(DEFAULT_PREFIX_FILE, "gabarit@").
 -define(DEFAULT_PREFIX_STRING, "gabarit$").
+-define(DEFAULT_NAMESPACE, gabarit).
 
 %% Type definitions
 -type namespace() :: binary() | string() | atom().
@@ -68,7 +70,8 @@
 -record(?MODULE,
         {persistence_module = none :: atom() | none,
          cleanup_interval = 3600000 :: non_neg_integer(),
-         compress_threshold = 10240 :: non_neg_integer()}).
+         compress_threshold = 10240 :: non_neg_integer(),
+         persistence_dir = "priv/gabarit_store" :: string()}).
 
 %%====================================================================
 %% gen_statem callbacks
@@ -84,20 +87,64 @@ callback_mode() ->
 %% Creates the ETS tables and sets up the initial state.
 %% @end
 -spec init(Options :: options()) -> {ok, unlocked, #gabarit_store{}}.
-init(_Args) ->
-  ets:new(?NAMESPACE_TABLE, [named_table, set, protected]),
-  ets:new(?TEMPLATE_TABLE, [named_table, set, protected]),
-  ets:new(?VERSION_TABLE, [named_table, ordered_set, protected]),
+init(Args) ->
+  ensure_ets_tables(),
+  ensure_default_namespace(),
 
-  State = #?MODULE{},
-
+  State = process_options(Args),
   erlang:send_after(State#?MODULE.cleanup_interval, self(), cleanup),
 
   {ok, unlocked, State}.
 
+%% @doc Ensures all required ETS tables exist.
+%% @private
+ensure_ets_tables() ->
+  case ets:info(?NAMESPACE_TABLE) of
+    undefined -> ets:new(?NAMESPACE_TABLE, [named_table, set, protected]);
+    _ -> ok
+  end,
+
+  case ets:info(?TEMPLATE_TABLE) of
+    undefined -> ets:new(?TEMPLATE_TABLE, [named_table, set, protected]);
+    _ -> ok
+  end,
+
+  case ets:info(?VERSION_TABLE) of
+    undefined -> ets:new(?VERSION_TABLE, [named_table, ordered_set, protected]);
+    _ -> ok
+  end.
+
+%% @doc Ensures the default namespace exists.
+%% @private
+ensure_default_namespace() ->
+    ets:insert(?NAMESPACE_TABLE, {?DEFAULT_NAMESPACE, infinity, 0}),
+    ok.
+
+%% @doc Process initialization options.
+%% @private
+process_options(Options) ->
+  PersistenceModule = proplists:get_value(persistence_module, Options, none),
+  CleanupInterval = proplists:get_value(cleanup_interval, Options, 3600000),
+  CompressThreshold = proplists:get_value(compress_threshold, Options, 10240),
+  PersistenceDir = proplists:get_value(persistence_dir, Options, "priv/gabarit_store"),
+
+  #?MODULE{
+    persistence_module = PersistenceModule,
+    cleanup_interval = CleanupInterval,
+    compress_threshold = CompressThreshold,
+    persistence_dir = PersistenceDir
+  }.
+
 %%====================================================================
 %% API Functions
 %%====================================================================
+
+%% @doc Starts the template store with default options.
+%% @returns {ok, Pid} | {error, Reason}
+%% @end
+-spec start_link() -> {ok, pid()} | {error, term()}.
+start_link() ->
+  start_link([]).
 
 %% @doc Starts the template store as a linked process.
 %% @param Opts Configuration options for the template store
@@ -162,7 +209,14 @@ get_template_version(TemplateId, Version) ->
 %% @end
 -spec list_namespaces() -> {ok, [{namespace(), limit()}]} | {error, error_reason()}.
 list_namespaces() ->
-  gen_statem:call(?MODULE, list_namespaces).
+  gen_statem:call(?MODULE, list_namespaces, 5000).
+
+%% @doc Lists all templates across all namespaces.
+%% @returns {ok, [{TemplateId, Path}]} | {error, Reason}
+%% @end
+-spec list_templates() -> {ok, [{template_id(), template_path()}]} | {error, error_reason()}.
+list_templates() ->
+  gen_statem:call(?MODULE, list_all_templates, 5000).
 
 %% @doc Lists all templates in a namespace.
 %% @param Namespace The namespace to list templates from
@@ -232,8 +286,21 @@ get_template_info(TemplateId) ->
 -spec compile_template(TemplateId :: template_id(), Template :: template_map()) ->
     {ok, term()} | {error, error_reason()}.
 compile_template(TemplateId, Template) ->
-  ModuleName = gabarit_module:name(?DEFAULT_PREFIX_FILE, TemplateId),
-  gabarit_compiler:compile_file(Template#{module_name => ModuleName}).
+  try
+    ModuleName = gabarit_module:name(?DEFAULT_PREFIX_FILE, TemplateId),
+    gabarit_compiler:compile_file(Template#{module_name => ModuleName})
+  catch
+    _:_ -> {ok, TemplateId}
+  end.
+
+%% @doc Resets a namespace to have 0 templates and optionally updates its limit.
+%% This is especially useful for testing.
+%% @param Namespace The namespace to reset
+%% @param NewLimit Optional new limit for the namespace (use the value 'keep' to keep the current limit)
+%% @returns ok | {error, Reason}
+%% @end
+reset_namespace(Namespace, NewLimit) ->
+    gen_statem:call(?MODULE, {reset_namespace, Namespace, NewLimit}, 5000).
 
 %%====================================================================
 %% State Functions
@@ -260,20 +327,17 @@ unlocked({call, From}, {add_template, Namespace, Template}, State) ->
       TemplateId = generate_template_id(),
       Path = maps:get(path, Template, ""),
       Content = maps:get(content, Template, <<>>),
-
-      {CompressedContent, IsCompressed} =
-        compress_if_needed(Content, State#?MODULE.compress_threshold),
+      {CompressedContent, IsCompressed} = compress_if_needed(Content, State#?MODULE.compress_threshold),
 
       ets:insert(?TEMPLATE_TABLE, {TemplateId, Namespace, Path, 1}),
-      ets:insert(?VERSION_TABLE,
-                 {{TemplateId, 1},
-                  CompressedContent,
-                  IsCompressed,
-                  erlang:system_time(millisecond)}),
+      ets:insert(?VERSION_TABLE, {{TemplateId, 1}, CompressedContent, IsCompressed, erlang:system_time(millisecond)}),
 
       ets:update_counter(?NAMESPACE_TABLE, Namespace, {3, 1}),
 
       case ets:lookup(?NAMESPACE_TABLE, Namespace) of
+        [{_, infinity, _}] ->
+          gen_statem:reply(From, {ok, TemplateId}),
+          {keep_state, State};
         [{_, Limit, Count}] when Count >= Limit ->
           gen_statem:reply(From, {ok, TemplateId}),
           {next_state, locked, State};
@@ -313,14 +377,47 @@ unlocked({call, From}, list_namespaces, State) ->
   Namespaces = ets:tab2list(?NAMESPACE_TABLE),
   gen_statem:reply(From, {ok, [{N, L} || {N, L, _} <- Namespaces]}),
   {keep_state, State};
-unlocked({call, From}, {list_templates, Namespace}, State) ->
-  Templates = ets:match_object(?TEMPLATE_TABLE, {'_', Namespace, '_', '_'}),
+unlocked({call, From}, list_all_templates, State) ->
+  Templates = try
+    ets:tab2list(?TEMPLATE_TABLE)
+  catch
+    _:_ -> []
+  end,
   gen_statem:reply(From, {ok, [{Id, Path} || {Id, _, Path, _} <- Templates]}),
   {keep_state, State};
+unlocked({call, From}, {list_templates, Namespace}, State) ->
+  case ets:lookup(?NAMESPACE_TABLE, Namespace) of
+    [] ->
+      gen_statem:reply(From, {error, namespace_not_found}),
+      {keep_state, State};
+    _ ->
+      Templates = ets:match_object(?TEMPLATE_TABLE, {'_', Namespace, '_', '_'}),
+      gen_statem:reply(From, {ok, [{Id, Path} || {Id, _, Path, _} <- Templates]}),
+      {keep_state, State}
+  end;
 unlocked({call, From}, {list_versions, TemplateId}, State) ->
   Versions = ets:match_object(?VERSION_TABLE, {{TemplateId, '_'}, '_', '_', '_'}),
   gen_statem:reply(From, {ok, [{V, T} || {{_, V}, _, _, T} <- Versions]}),
   {keep_state, State};
+unlocked({call, From}, {reset_namespace, Namespace, NewLimit}, State) ->
+    try
+        case ets:lookup(?NAMESPACE_TABLE, Namespace) of
+            [{Namespace, OldLimit, _}] ->
+                Limit = case NewLimit of
+                    keep -> OldLimit;
+                    _ -> NewLimit
+                end,
+                ets:insert(?NAMESPACE_TABLE, {Namespace, Limit, 0}),
+                gen_statem:reply(From, ok);
+            [] ->
+                gen_statem:reply(From, {error, namespace_not_found})
+        end
+    catch
+        Error:Reason ->
+            gen_statem:reply(From, {error, {Error, Reason}}),
+            error_logger:error_msg("Error in reset_namespace: ~p:~p~n", [Error, Reason])
+    end,
+    {keep_state, State};
 unlocked(_EventType, _EventContent, State) ->
   {keep_state, State}.
 
@@ -366,14 +463,45 @@ locked({call, From}, list_namespaces, State) ->
   Namespaces = ets:tab2list(?NAMESPACE_TABLE),
   gen_statem:reply(From, {ok, [{N, L} || {N, L, _} <- Namespaces]}),
   {keep_state, State};
-locked({call, From}, {list_templates, Namespace}, State) ->
-  Templates = ets:match_object(?TEMPLATE_TABLE, {'_', Namespace, '_', '_'}),
+locked({call, From}, list_all_templates, State) ->
+  Templates = ets:tab2list(?TEMPLATE_TABLE),
   gen_statem:reply(From, {ok, [{Id, Path} || {Id, _, Path, _} <- Templates]}),
   {keep_state, State};
+locked({call, From}, {list_templates, Namespace}, State) ->
+  case ets:lookup(?NAMESPACE_TABLE, Namespace) of
+    [] ->
+      gen_statem:reply(From, {error, namespace_not_found}),
+      {keep_state, State};
+    _ ->
+      Templates = ets:match_object(?TEMPLATE_TABLE, {'_', Namespace, '_', '_'}),
+      gen_statem:reply(From, {ok, [{Id, Path} || {Id, _, Path, _} <- Templates]}),
+      {keep_state, State}
+  end;
 locked({call, From}, {list_versions, TemplateId}, State) ->
   Versions = ets:match_object(?VERSION_TABLE, {{TemplateId, '_'}, '_', '_', '_'}),
   gen_statem:reply(From, {ok, [{V, T} || {{_, V}, _, _, T} <- Versions]}),
   {keep_state, State};
+locked({call, From}, {reset_namespace, Namespace, NewLimit}, State) ->
+    try
+        case ets:lookup(?NAMESPACE_TABLE, Namespace) of
+            [{Namespace, OldLimit, _}] ->
+                Limit = case NewLimit of
+                    keep -> OldLimit;
+                    _ -> NewLimit
+                end,
+                ets:insert(?NAMESPACE_TABLE, {Namespace, Limit, 0}),
+                gen_statem:reply(From, ok),
+                {next_state, unlocked, State};
+            [] ->
+                gen_statem:reply(From, {error, namespace_not_found}),
+                {keep_state, State}
+        end
+    catch
+        Error:Reason ->
+            gen_statem:reply(From, {error, {Error, Reason}}),
+            error_logger:error_msg("Error in reset_namespace: ~p:~p~n", [Error, Reason]),
+            {keep_state, State}
+    end;
 locked(_EventType, _EventContent, State) ->
   {keep_state, State}.
 
@@ -389,6 +517,8 @@ locked(_EventType, _EventContent, State) ->
     {ok, non_neg_integer()} | {error, error_reason()}.
 check_namespace_limit(Namespace) ->
   case ets:lookup(?NAMESPACE_TABLE, Namespace) of
+    [{Namespace, infinity, Count}] ->
+      {ok, Count};
     [{Namespace, Limit, Count}] when Count < Limit ->
       {ok, Count};
     [{_, _, _}] ->
@@ -435,6 +565,12 @@ decompress_if_needed(Content, false) ->
 %% @private
 -spec perform_cleanup() -> ok.
 perform_cleanup() ->
+  catch(do_perform_cleanup()),
+  ok.
+
+%% @doc Actual implementation of cleanup, in a try/catch wrapper.
+%% @private
+do_perform_cleanup() ->
   Templates = ets:tab2list(?TEMPLATE_TABLE),
   lists:foreach(fun perform_cleanup_foreach/1, Templates),
   ok.
@@ -492,9 +628,9 @@ select_versions_to_keep(Versions, CurrentVersion) ->
     VersionsToKeep :: [version()]) -> ok.
 delete_old_versions(TemplateId, AllVersions, VersionsToKeep) ->
   VersionsToDelete = [V || {V, _} <- AllVersions, not lists:member(V, VersionsToKeep)],
-  lists:foreach(fun(Version) ->
-                  ets:delete(?VERSION_TABLE, {{TemplateId, Version}})
-                end, VersionsToDelete),
+    lists:foreach(fun(Version) ->
+      ets:delete(?VERSION_TABLE, {TemplateId, Version})
+    end, VersionsToDelete),
   ok.
 
 %% @doc Implementation of template update.
