@@ -19,7 +19,7 @@ another template is being used, gabarit will not automatically fetch
 required dependencies, you will be in charge to add them manually.
 
 Gabarit compiles an erlang module including file or directory
-templates using merl. 
+templates using merl.
 
 ## Features
 
@@ -66,6 +66,24 @@ rebar3 compile
 
 ```sh
 rebar3 ct
+```
+
+## Code Formatting
+
+Gabarit uses erlfmt to maintain consistent code formatting. All code should be formatted before being committed or submitted in a PR.
+
+To format all files:
+```sh
+rebar3 fmt -w
+# or
+make format
+```
+
+To verify formatting without making changes:
+```sh
+rebar3 fmt --check
+# or
+make check-format
 ```
 
 ## Usage
@@ -121,7 +139,7 @@ gabarit:export().
 
 % create a new template based on path with
 % custom template engine. If the file or the
-% directory exists, it will create a new module 
+% directory exists, it will create a new module
 % called: 'gabarit@/path'.
 gabarit:new("path", [{engine, bbmustach}]).
 
@@ -130,7 +148,7 @@ gabarit:new("path", [{'render/2', {bbmustache, render}}
                     ,{'render/3', {bbmustache, render}}
 					]).
 
-% create a template from data-structure. it will generate a 
+% create a template from data-structure. it will generate a
 % new module called: 'gabarit$name'.
 gabarit:new_template("name", "template {{content}}.", []).
 
@@ -212,7 +230,7 @@ expression). It should be developed in pure Erlang.
 
 It could be great to support both structured and unstructured template
 engines to generate, for example, XML, HTML, JSON but also Mardown and
-raw textual files. 
+raw textual files.
 
 ### What About Binary Template Engine?
 
@@ -244,7 +262,7 @@ Mapping = [{Identifier, {From, To}}
 Module:data().
 
 Module:analyze().
-Module:analyze(fun(X) -> 
+Module:analyze(fun(X) ->
 
 % print the default mapping used for this file
 Module:mapping().

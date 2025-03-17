@@ -21,9 +21,9 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec new(Filename) -> Return when
-      Filename :: string() | binary(),
-      Return :: {ok, Module},
-      Module :: atom().
+    Filename :: string() | binary(),
+    Return :: {ok, Module},
+    Module :: atom().
 new(Filename) ->
     Template = gabarit_compiler:template_file(Filename),
     gabarit_compiler:compile_file(Template).

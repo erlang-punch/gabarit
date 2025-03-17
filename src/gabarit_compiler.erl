@@ -14,21 +14,22 @@
 %% @doc compile
 %% @end
 %%--------------------------------------------------------------------
-compile_file(#{ name := Identifier } = Struct) ->
+compile_file(#{name := Identifier} = Struct) ->
     ModuleName = create_module_name(?DEFAULT_PREFIX_FILE, Identifier),
-    NewStruct = Struct#{ module_name => ModuleName },
+    NewStruct = Struct#{module_name => ModuleName},
     case merl_compile_and_load(NewStruct) of
-	{ok, _} ->
-	    {ok, ModuleName};
-	Elsewise -> Elsewise
+        {ok, _} ->
+            {ok, ModuleName};
+        Elsewise ->
+            Elsewise
     end.
 
 %%--------------------------------------------------------------------
 %%
 %%--------------------------------------------------------------------
-compile_string(#{ name := Identifier } = Struct) ->
+compile_string(#{name := Identifier} = Struct) ->
     ModuleName = create_module_name(?DEFAULT_PREFIX_STRING, Identifier),
-    merl_compile_and_load(Struct#{ module_name => ModuleName }).
+    merl_compile_and_load(Struct#{module_name => ModuleName}).
 
 %%--------------------------------------------------------------------
 %%
@@ -48,8 +49,8 @@ find_and_compile() ->
 %%--------------------------------------------------------------------
 map_compile(Struct) ->
     case compile(Struct) of
-	{ok, Compiled} -> Struct#{ module => Compiled };
-	Error -> Struct#{ module => Error }
+        {ok, Compiled} -> Struct#{module => Compiled};
+        Error -> Struct#{module => Error}
     end.
 
 %%--------------------------------------------------------------------
@@ -58,9 +59,9 @@ map_compile(Struct) ->
 create_module_name(Prefix, Identifier) ->
     ModuleName = string:concat(Prefix, Identifier),
     try
-	erlang:list_to_existing_atom(ModuleName)
+        erlang:list_to_existing_atom(ModuleName)
     catch
-	_:_ -> erlang:list_to_atom(ModuleName)
+        _:_ -> erlang:list_to_atom(ModuleName)
     end.
 
 %%--------------------------------------------------------------------
@@ -69,9 +70,9 @@ create_module_name(Prefix, Identifier) ->
 find_template_file_module(Identifier) ->
     ModuleName = string:concat(?DEFAULT_PREFIX_FILE, Identifier),
     try
-	erlang:list_to_existing_atom(ModuleName)
+        erlang:list_to_existing_atom(ModuleName)
     catch
-	_:_ -> throw({error, ModuleName})
+        _:_ -> throw({error, ModuleName})
     end.
 
 %%--------------------------------------------------------------------
@@ -102,10 +103,10 @@ tree(Path) -> tree(Path, [], Path).
 %%--------------------------------------------------------------------
 tree(Path, Buffer, Root) ->
     case file:list_dir(Path) of
-	{ok, Files} ->
-	    tree(Path, Files, Buffer, Root);
-	{error, Error} ->
-	    throw({error, Error})
+        {ok, Files} ->
+            tree(Path, Files, Buffer, Root);
+        {error, Error} ->
+            throw({error, Error})
     end.
 
 %%--------------------------------------------------------------------
@@ -113,18 +114,19 @@ tree(Path, Buffer, Root) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-tree(_, [], Buffer, Root) -> Buffer;
-tree(Path, [File|Files], Buffer, Root) ->
+tree(_, [], Buffer, Root) ->
+    Buffer;
+tree(Path, [File | Files], Buffer, Root) ->
     FilePath = filename:join([Path, File]),
     case filelib:is_dir(FilePath) of
-	true -> 
-	    tree(FilePath, Buffer, Root);
-	false -> 
-	    F = filename:split(FilePath),
-	    R = filename:split(Root),
-	    S = lists:subtract(F, R),
-	    RelativePath = filename:join(S),
-	    tree(Path, Files, [{Path, FilePath, RelativePath}|Buffer], Root)
+        true ->
+            tree(FilePath, Buffer, Root);
+        false ->
+            F = filename:split(FilePath),
+            R = filename:split(Root),
+            S = lists:subtract(F, R),
+            RelativePath = filename:join(S),
+            tree(Path, Files, [{Path, FilePath, RelativePath} | Buffer], Root)
     end.
 
 %%--------------------------------------------------------------------
@@ -134,14 +136,14 @@ tree(Path, [File|Files], Buffer, Root) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec tree_filter({TemplatePath, TemplateFile, RelativePath}, Acc) -> Return when
-      TemplatePath :: string(),
-      TemplateFile :: string(),
-      RelativePath :: string(),
-      Acc :: [string(), ...],
-      Return :: Acc.
+    TemplatePath :: string(),
+    TemplateFile :: string(),
+    RelativePath :: string(),
+    Acc :: [string(), ...],
+    Return :: Acc.
 tree_filter({TemplatePath, _TemplateFile, RelativePath}, Acc) ->
     Return = template_file(TemplatePath, RelativePath),
-    [Return|Acc].
+    [Return | Acc].
 
 %%--------------------------------------------------------------------
 %%
@@ -159,28 +161,30 @@ template_file(Filename) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec template_file(TemplatePath, TemplateFile) -> Return when
-      TemplatePath :: string(),
-      TemplateFile :: string(),
-      Return :: map().
+    TemplatePath :: string(),
+    TemplateFile :: string(),
+    Return :: map().
 template_file(TemplatePath, TemplateFile) ->
     case filelib:safe_relative_path(TemplateFile, TemplatePath) of
-	unsafe -> {error, unsafe};
-	SafeFile ->
-	    SafePath = filename:join(path(), SafeFile),
-	    AbsolutePath = filename:absname(SafePath),
-	    Filename = filename:basename(SafePath),
-	    Identifier = template_file_identifier(TemplatePath, Filename),
-	    case file:read_file(SafePath) of
-		{ok, Content} ->
-		    #{ name => Identifier
-		     , filename => Filename
-		     , absolute_path => AbsolutePath
-		     , relative_path => TemplatePath
-		     , template => Content
-		     };
-		{error, Error} ->
-		    throw(Error)
-	    end
+        unsafe ->
+            {error, unsafe};
+        SafeFile ->
+            SafePath = filename:join(path(), SafeFile),
+            AbsolutePath = filename:absname(SafePath),
+            Filename = filename:basename(SafePath),
+            Identifier = template_file_identifier(TemplatePath, Filename),
+            case file:read_file(SafePath) of
+                {ok, Content} ->
+                    #{
+                        name => Identifier,
+                        filename => Filename,
+                        absolute_path => AbsolutePath,
+                        relative_path => TemplatePath,
+                        template => Content
+                    };
+                {error, Error} ->
+                    throw(Error)
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -212,9 +216,10 @@ merl_template() ->
 %%--------------------------------------------------------------------
 merl_template(TemplateFile) ->
     case file:read_file(TemplateFile) of
-	{ok, Content} ->
-	    Content;
-	Elsewise -> throw(Elsewise)
+        {ok, Content} ->
+            Content;
+        Elsewise ->
+            throw(Elsewise)
     end.
 
 %%--------------------------------------------------------------------
@@ -225,9 +230,10 @@ merl_template(TemplateFile) ->
 merl_compile_and_load(Opts) ->
     Template = merl_template(),
     case merl_qquote(Template, Opts) of
-	{ok, AST} ->
-	    merl:compile_and_load(AST);
-	Error -> Error
+        {ok, AST} ->
+            merl:compile_and_load(AST);
+        Error ->
+            Error
     end.
 
 %%--------------------------------------------------------------------
@@ -242,7 +248,7 @@ merl_qquote(Template, Opts) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-merl_subst_module_name(Template, #{ module_name := ModuleName } = Opts) ->
+merl_subst_module_name(Template, #{module_name := ModuleName} = Opts) ->
     Term = merl:term(ModuleName),
     Result = merl:subst(Template, [{module_name, Term}]),
     merl_subst_module_version(Result, Opts).
@@ -252,14 +258,16 @@ merl_subst_module_name(Template, #{ module_name := ModuleName } = Opts) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-merl_subst_module_version(Template, #{ module_name := ModuleName } = Opts) ->
-    Version = case erlang:module_loaded(ModuleName) of
-		  true ->
-		      LoadedVersion = ModuleName:version(),
-		      maps:get(module_version, Opts, LoadedVersion);
-		  false -> 0
-	      end,
-    Term = merl:term(Version+1),
+merl_subst_module_version(Template, #{module_name := ModuleName} = Opts) ->
+    Version =
+        case erlang:module_loaded(ModuleName) of
+            true ->
+                LoadedVersion = ModuleName:version(),
+                maps:get(module_version, Opts, LoadedVersion);
+            false ->
+                0
+        end,
+    Term = merl:term(Version + 1),
     Result = merl:subst(Template, [{module_version, Term}]),
     merl_subst_path(Result, Opts).
 
@@ -268,10 +276,17 @@ merl_subst_module_version(Template, #{ module_name := ModuleName } = Opts) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-merl_subst_path(Template, #{ relative_path := RelativePath
-			   , absolute_path := AbsolutePath } = Opts) ->
-    Result = merl:subst(Template, [{relative_path, merl:term(RelativePath)}
-				  ,{absolute_path, merl:term(AbsolutePath)}]),
+merl_subst_path(
+    Template,
+    #{
+        relative_path := RelativePath,
+        absolute_path := AbsolutePath
+    } = Opts
+) ->
+    Result = merl:subst(Template, [
+        {relative_path, merl:term(RelativePath)},
+        {absolute_path, merl:term(AbsolutePath)}
+    ]),
     merl_subst_vsn(Result, Opts).
 
 %%--------------------------------------------------------------------
@@ -290,14 +305,15 @@ merl_subst_vsn(Template, Opts) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-merl_subst_created_at(Template, #{ module_name := ModuleName } = Opts) ->
-    CreatedAt = case erlang:module_loaded(ModuleName) of
-		    true ->
-			Original = ModuleName:created_at(),
-			maps:get(created_at, Opts, Original);
-		    false ->
-			erlang:system_time()
-		end,
+merl_subst_created_at(Template, #{module_name := ModuleName} = Opts) ->
+    CreatedAt =
+        case erlang:module_loaded(ModuleName) of
+            true ->
+                Original = ModuleName:created_at(),
+                maps:get(created_at, Opts, Original);
+            false ->
+                erlang:system_time()
+        end,
     Term = merl:term(CreatedAt),
     Result = merl:subst(Template, [{created_at, Term}]),
     merl_subst_updated_at(Result, Opts).
@@ -343,9 +359,10 @@ merl_subst_render_opts(Template, Opts) ->
 merl_subst_callback(Template, Opts) ->
     CallbackModule = maps:get(callback_module, Opts, bbmustache),
     CallbackFunction = maps:get(callback_function, Opts, render),
-    Result = merl:subst(Template, [{callback_module, merl:term(CallbackModule)}
-				  ,{callback_function, merl:term(CallbackFunction)}
-				  ]),
+    Result = merl:subst(Template, [
+        {callback_module, merl:term(CallbackModule)},
+        {callback_function, merl:term(CallbackFunction)}
+    ]),
     merl_subst_template(Result, Opts).
 
 %%--------------------------------------------------------------------
