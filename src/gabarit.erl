@@ -17,8 +17,10 @@
 -module(gabarit).
 
 -export([
+    create_namespace/1,
     create_namespace/2,
-    list_namespaces/0
+    list_namespaces/0,
+    reset_namespace/2
 ]).
 
 -export([
@@ -30,6 +32,7 @@
     get_template_version/2,
     update_template/2,
     compile_template/2,
+    list_templates/0,
     list_templates/1,
     list_versions/1,
     rollback/2
@@ -50,24 +53,54 @@
 %% @doc Creates a new namespace with a specified template limit.
 %%
 %% @param Namespace The namespace identifier
-%% @param Limit Maximum number of templates allowed in the namespace
 %% @returns ok | {error, Reason}
 %% @end
-create_namespace(Namespace, Limit) ->
+-spec create_namespace(Namespace) -> Return when
+      Namespace :: string() | binary() | atom(),
+      Return :: ok | {error, term()}.
+create_namespace(Namespace) ->
+    create_namespace(Namespace, #{}).
+
+%% @doc Creates a new namespace with a specified template limit.
+%%
+%% @param Namespace The namespace identifier
+%% @param Opts A map of options: Default maximum number of templates allowed in the namespace
+%% @returns ok | {error, Reason}
+%% @end
+-spec create_namespace(Namespace, Opts) -> Return when
+      Namespace :: string() | binary() | atom(),
+      Opts :: map(),
+      Return :: ok | {error, term()}.
+create_namespace(Namespace, Opts) ->
+    Limit = maps:get(limit, Opts, infinity),
     gabarit_store:add_namespace(Namespace, Limit).
 
 %% @doc Lists all available namespaces.
 %%
 %% @returns {ok, [{Namespace, Limit}]} | {error, Reason}
 %% @end
+-spec list_namespaces() -> Return when
+      Return :: {ok, [{term(), non_neg_integer()}]} | {error, term()}.
 list_namespaces() ->
     gabarit_store:list_namespaces().
 
-%% @doc Lists all templates in a namespace.
+%% @doc Lists all templates across all namespaces.
+%%
+%% @returns {ok, [{TemplateId, Path}]} | {error, Reason}
+%% @end
+-spec list_templates() -> Return when
+      Return :: {ok, [{term(), string()}]} | {error, term()}.
+list_templates() ->
+    gabarit_store:list_templates().
+
+%% @doc Lists all templates in a specific namespace.
 %%
 %% @param Namespace The namespace to list templates from
 %% @returns {ok, [{TemplateId, Path}]} | {error, Reason}
 %% @end
+-spec list_templates(Namespace) -> Return when
+      Namespace :: string() | binary() | atom(),
+      Return :: {ok, [{term(), string()}]} | {error, term()}.
 list_templates(Namespace) ->
     gabarit_store:list_templates(Namespace).
 
@@ -115,11 +148,14 @@ new_template(Filename) ->
 %% @returns {ok, TemplateId} | {error, Reason}
 %% @end
 new_template(Filename, Opts) ->
-    Namespace = proplists:get_value(namespace, Opts, "default"),
+    Namespace = proplists:get_value(namespace, Opts, default),
     Template = gabarit_compiler:template_file(Filename),
-    case gabarit_store:add_template(Namespace, Template) of
+    Content = maps:get(template, Template, <<>>),
+    Path = maps:get(name, Template, Filename),
+    case gabarit_store:add_template(Namespace, Path, Content) of
         {ok, TemplateId} ->
-            compile_template(TemplateId, Template);
+            TemplateMap = Template#{name => TemplateId},
+            compile_template(TemplateId, TemplateMap);
         Error ->
             Error
     end.
@@ -234,3 +270,11 @@ render(Filename, Context) ->
 render(Filename, Context, Opts) ->
     ModuleName = gabarit_compiler:find_template_file_module(Filename),
     ModuleName:render(Context, Opts).
+
+%% @doc Resets a namespace to have 0 templates and optionally updates its limit.
+%% @param Namespace The namespace to reset
+%% @param NewLimit Optional new limit (use 'keep' to retain the current limit)
+%% @returns ok | {error, Reason}
+%% @end
+reset_namespace(Namespace, NewLimit) ->
+    gabarit_store:reset_namespace(Namespace, NewLimit).
